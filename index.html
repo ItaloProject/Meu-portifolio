@@ -259,9 +259,14 @@
 
     .hero-last {
       color: transparent;
-      -webkit-text-stroke: 1.5px rgba(255,255,255,.07);
       position: relative;
     }
+    /* No stroke here at all (previously a dim rgba(255,255,255,.07) one) --
+       two independently-rendered strokes stacked on the same glyph outline,
+       even both very close in position, don't anti-alias identically pixel
+       for pixel. The base's edge kept peeking out past the purple one as a
+       faint ghost. With only the single purple stroke below, that's gone
+       by construction: there's nothing left to misalign against. */
     .hero-last .stroke-accent {
       position: absolute; inset: 0;
       color: transparent;
