@@ -357,6 +357,13 @@
       100% { top: 150%; }
     }
 
+    /* On short viewports (e.g. iPhone SE) the hero's centered content already
+       runs close to the bottom edge — the scroll hint anchored at bottom:2.5rem
+       ends up overlapping the "Falar comigo" button instead of sitting below it. */
+    @media (max-height: 700px) {
+      .hero-scroll-hint { display: none; }
+    }
+
     /* ── STATS BAR ── */
     .stats-bar {
       padding: 3rem 4rem;
@@ -1118,21 +1125,25 @@
       100% { opacity: 0; }
     }
 
-    /* ── TERMINAL FAB (mobile/touch trigger) ── */
+    /* ── TERMINAL FAB (mobile/touch trigger) ──
+       Opaque background is deliberate: this sits fixed over whatever content
+       is scrolled beneath it, and a translucent fill let text bleed through
+       illegibly (looked like broken/cut-off copy). Solid fill reads as an
+       intentional floating button instead. */
     #terminal-fab {
       display: none;
-      position: fixed; bottom: 1.6rem; right: 1.5rem;
+      position: fixed; bottom: 1.2rem; right: 1.1rem;
       z-index: 300;
-      width: 52px; height: 52px;
+      width: 44px; height: 44px;
       border-radius: 50%;
-      background: rgba(0,255,136,.1);
-      border: 1px solid rgba(0,255,136,.35);
+      background: #0a0a16;
+      border: 1px solid rgba(0,255,136,.45);
       color: var(--green);
       font-family: 'JetBrains Mono', monospace;
       font-size: .78rem; font-weight: 700;
       align-items: center; justify-content: center;
       cursor: pointer;
-      box-shadow: 0 0 20px rgba(0,255,136,.15);
+      box-shadow: 0 0 20px rgba(0,255,136,.25), 0 4px 16px rgba(0,0,0,.4);
     }
 
     /* ── GSAP INITIAL STATE: set by JS, not CSS, so content is visible without JS ── */
