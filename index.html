@@ -2178,8 +2178,20 @@ window.addEventListener('load', function () {
   const aiVideo = document.getElementById('ai-showcase-video');
   if (aiVideo) {
     const aiFrame = aiVideo.closest('.ai-video-frame');
-    aiVideo.addEventListener('loadeddata', () => aiFrame.classList.add('has-video'));
+    const markLoaded = () => aiFrame.classList.add('has-video');
+    // readyState may already be >= 2 by the time this runs (cached/fast local files),
+    // in which case 'loadeddata' already fired and would never be caught below.
+    if (aiVideo.readyState >= 2) markLoaded();
+    aiVideo.addEventListener('loadeddata', markLoaded);
     aiVideo.addEventListener('error', () => aiFrame.classList.remove('has-video'));
+
+    // Browsers pause offscreen video even with autoplay+muted (bandwidth/battery
+    // optimization) since this section sits well below the fold. Play only while
+    // it's actually visible, so it starts fresh whenever the visitor scrolls to it.
+    const tryPlay = () => aiVideo.play().catch(() => {});
+    new IntersectionObserver(entries => {
+      entries.forEach(entry => entry.isIntersecting ? tryPlay() : aiVideo.pause());
+    }, { threshold: 0.25 }).observe(aiVideo);
   }
 
   // ══════════════════════════════════════════
