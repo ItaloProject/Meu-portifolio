@@ -746,6 +746,20 @@
     footer span { font-family: 'JetBrains Mono', monospace; }
     .foot-green { color: var(--green); }
 
+    /* ── ROCKET ── */
+    #rocket-trail {
+      position: fixed; inset: 0;
+      pointer-events: none; z-index: 8000;
+      width: 100%; height: 100%;
+    }
+    #rocket-ship {
+      position: fixed; bottom: -100px;
+      pointer-events: none; z-index: 8001;
+      opacity: 0;
+      filter: drop-shadow(0 0 10px rgba(124,92,252,.6));
+      transform-origin: center bottom;
+    }
+
     /* ── PIPELINE ── */
     #pipeline {
       padding: 8rem 4rem;
@@ -989,6 +1003,41 @@
   </style>
 </head>
 <body>
+
+<!-- ROCKET -->
+<canvas id="rocket-trail"></canvas>
+<div id="rocket-ship" aria-hidden="true">
+  <svg viewBox="0 0 44 88" xmlns="http://www.w3.org/2000/svg" width="44" height="88">
+    <!-- Body -->
+    <path d="M22 2 C30 14 32 34 32 56 L12 56 C12 34 14 14 22 2Z" fill="#eeeeff"/>
+    <!-- Nose stripe -->
+    <path d="M22 2 C26 10 28 20 28 32 L16 32 C16 20 18 10 22 2Z" fill="#7c5cfc"/>
+    <!-- Window -->
+    <circle cx="22" cy="38" r="6" fill="#04040c" stroke="#00ff88" stroke-width="1.5"/>
+    <circle cx="22" cy="38" r="3" fill="#00ff88" opacity="0.4"/>
+    <!-- Left fin -->
+    <path d="M12 48 L4 70 L12 62 Z" fill="#7c5cfc"/>
+    <!-- Right fin -->
+    <path d="M32 48 L40 70 L32 62 Z" fill="#7c5cfc"/>
+    <!-- Engine base -->
+    <rect x="14" y="56" width="16" height="6" rx="2" fill="#a78bfa"/>
+    <!-- Engine nozzle -->
+    <path d="M16 62 L14 70 L30 70 L28 62Z" fill="#6b6b8a"/>
+    <!-- Flame outer -->
+    <ellipse cx="22" cy="74" rx="7" ry="10" fill="#ff6b35" opacity="0.9">
+      <animate attributeName="ry" values="10;13;9;12;10" dur="0.12s" repeatCount="indefinite"/>
+      <animate attributeName="opacity" values="0.9;0.7;1;0.8;0.9" dur="0.15s" repeatCount="indefinite"/>
+    </ellipse>
+    <!-- Flame inner -->
+    <ellipse cx="22" cy="72" rx="4" ry="7" fill="#febc2e" opacity="0.95">
+      <animate attributeName="ry" values="7;9;6;8;7" dur="0.1s" repeatCount="indefinite"/>
+    </ellipse>
+    <!-- Flame core -->
+    <ellipse cx="22" cy="70" rx="2" ry="4" fill="#fff" opacity="0.8">
+      <animate attributeName="ry" values="4;5;3;5;4" dur="0.08s" repeatCount="indefinite"/>
+    </ellipse>
+  </svg>
+</div>
 
 <!-- Cursor -->
 <div id="c-beam"></div>
@@ -1514,7 +1563,6 @@ window.addEventListener('load', function () {
   // Set initial invisible state via JS (not CSS), so content is visible without JS
   gsap.set('.gs-up',     { opacity: 0, y: 40 });
   gsap.set('.gs-right',  { opacity: 0, x: 40 });
-  gsap.set('.gs-left',   { opacity: 0, x: -40 });
   gsap.set('.gs-hidden', { opacity: 0 });
   gsap.set('.pipe-stage', { opacity: 0, y: 30 });
 
@@ -1677,15 +1725,6 @@ window.addEventListener('load', function () {
     );
   });
 
-  gsap.utils.toArray('.gs-left').forEach(el => {
-    gsap.fromTo(el,
-      { opacity: 0, x: -40 },
-      {
-        opacity: 1, x: 0, duration: .85, ease: 'power3.out',
-        scrollTrigger: { trigger: el, start: 'top 88%', toggleActions: 'play none none none' }
-      }
-    );
-  });
 
   // ── SKILL BARS ──
   document.querySelectorAll('.skill-fill').forEach(bar => {
@@ -1783,6 +1822,109 @@ window.addEventListener('load', function () {
       gsap.set(heroContent, { y: sy * .15 });
     }
   });
+
+  // ══════════════════════════════════════════
+  // ── ROCKET LAUNCH ──
+  // ══════════════════════════════════════════
+  const rTrail = document.getElementById('rocket-trail');
+  const rCtx   = rTrail.getContext('2d');
+  const rShip  = document.getElementById('rocket-ship');
+  let rW, rH;
+
+  function rResize() {
+    rW = rTrail.width  = window.innerWidth;
+    rH = rTrail.height = window.innerHeight;
+  }
+  rResize();
+  window.addEventListener('resize', rResize);
+
+  let rParts = [], rFlying = false;
+
+  function spawnParts(x, y) {
+    const colors = ['#ff6b35','#febc2e','#ff2d6b','#00ff88','#fff'];
+    for (let i = 0; i < 5; i++) {
+      rParts.push({
+        x, y,
+        vx: (Math.random() - .5) * 4,
+        vy: Math.random() * 5 + 2,
+        life: 1,
+        size: Math.random() * 5 + 2,
+        color: colors[Math.floor(Math.random() * colors.length)]
+      });
+    }
+  }
+
+  function drawTrail() {
+    rCtx.clearRect(0, 0, rW, rH);
+    rParts = rParts.filter(p => p.life > 0.02);
+    rParts.forEach(p => {
+      p.x   += p.vx;
+      p.y   += p.vy;
+      p.vy  *= 1.04;
+      p.life -= 0.025;
+      p.size *= 0.975;
+      rCtx.globalAlpha = p.life * 0.85;
+      rCtx.fillStyle   = p.color;
+      rCtx.shadowColor = p.color;
+      rCtx.shadowBlur  = 6;
+      rCtx.beginPath();
+      rCtx.arc(p.x, p.y, p.size, 0, Math.PI * 2);
+      rCtx.fill();
+    });
+    rCtx.globalAlpha = 1;
+    rCtx.shadowBlur  = 0;
+    if (rFlying || rParts.length) requestAnimationFrame(drawTrail);
+  }
+
+  function launchRocket() {
+    if (rFlying) return;
+    rFlying = true;
+
+    const startPct = 15 + Math.random() * 65;
+    const tiltDeg  = (Math.random() - .5) * 18;
+    const driftX   = tiltDeg * 12;
+
+    gsap.set(rShip, {
+      left: startPct + '%',
+      bottom: '-100px',
+      y: 0, x: 0,
+      rotation: tiltDeg,
+      opacity: 1,
+      scale: 1
+    });
+
+    let spawnTimer;
+    const tl = gsap.timeline({
+      onStart() {
+        drawTrail();
+        spawnTimer = setInterval(() => {
+          const r = rShip.getBoundingClientRect();
+          spawnParts(r.left + r.width / 2, r.bottom - 4);
+        }, 25);
+      },
+      onComplete() {
+        clearInterval(spawnTimer);
+        rFlying = false;
+        gsap.set(rShip, { opacity: 0 });
+        scheduleNext();
+      }
+    });
+
+    tl.to(rShip, {
+      y: -(rH + 160),
+      x: driftX,
+      duration: 3,
+      ease: 'power2.in',
+      rotation: tiltDeg * 1.4
+    });
+  }
+
+  function scheduleNext() {
+    setTimeout(launchRocket, 30000 + Math.random() * 25000);
+  }
+
+  // First launch after 2.5s
+  setTimeout(launchRocket, 2500);
 
   // ══════════════════════════════════════════
   // ── PIPELINE ANIMATION ──
@@ -1891,7 +2033,7 @@ window.addEventListener('load', function () {
       return [
         '<span class="t-green t-bold">// Como me encontrar</span>',
         '',
-        '  <span class="t-muted">E-mail:</span>    <span class="t-link" onclick="window.location=\'mailto:italo.fontes2026@gmail.com\'">italo.fontes2026@gmail.com</span>',
+        '  <span class="t-muted">E-mail:</span>    <span class="t-link" onclick="window.open(\'mailto:italo.fontes2026@gmail.com\')">italo.fontes2026@gmail.com</span>',
         '  <span class="t-muted">LinkedIn:</span>  <span class="t-link" onclick="window.open(\'https://linkedin.com/in/italofontes\',\'_blank\')">linkedin.com/in/italofontes</span>',
         '  <span class="t-muted">GitHub:</span>    <span class="t-link" onclick="window.open(\'https://github.com/ItaloProject\',\'_blank\')">github.com/ItaloProject</span>',
         '  <span class="t-muted">WhatsApp:</span>  <span class="t-link" onclick="window.open(\'https://wa.me/5599984491810\',\'_blank\')">+55 99 9 8449-1810</span>',
@@ -1937,7 +2079,7 @@ window.addEventListener('load', function () {
         '<span class="t-green t-bold">🎉 CONTRATAÇÃO APROVADA!</span>',
         '',
         '  Próximo passo: envie uma mensagem em',
-        '  <span class="t-link" onclick="document.getElementById(\'terminal-overlay\').classList.remove(\'open\');document.body.style.overflow=\'\';document.querySelector(\'#contact\').scrollIntoView({behavior:\'smooth\'})">→ seção de contato</span> ou via WhatsApp.',
+        '  <span class="t-link" onclick="closeTerm();setTimeout(()=>document.querySelector(\'#contact\').scrollIntoView({behavior:\'smooth\'}),300)">→ seção de contato</span> ou via WhatsApp.',
         '',
       ];
     },
@@ -2026,17 +2168,21 @@ window.addEventListener('load', function () {
   const CHARS = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789@#$%&*<>{}[]';
 
   function scrambleEl(el) {
-    const original = el.textContent;
+    const savedHTML = el.innerHTML;
+    const plainText = el.textContent;
     let frame = 0;
     const totalFrames = 22;
     const interval = setInterval(() => {
-      el.textContent = original.split('').map((ch, i) => {
-        if (ch === ' ') return ' ';
-        const revealAt = Math.floor((i / original.length) * totalFrames);
+      el.textContent = plainText.split('').map((ch, i) => {
+        if (ch === ' ' || ch === '\n') return ch;
+        const revealAt = Math.floor((i / plainText.length) * totalFrames);
         return frame >= revealAt ? ch : CHARS[Math.floor(Math.random() * CHARS.length)];
       }).join('');
       frame++;
-      if (frame > totalFrames) { el.textContent = original; clearInterval(interval); }
+      if (frame > totalFrames) {
+        el.innerHTML = savedHTML; // restaura <br>, <span> etc.
+        clearInterval(interval);
+      }
     }, 38);
   }
 
