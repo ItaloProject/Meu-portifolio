@@ -247,21 +247,6 @@
       line-height: .92;
     }
 
-    /* "Fontes" is stroke-only (transparent fill), so the network canvas behind
-       it shows straight through the hollow letterforms — a line crossing a
-       counter reads as the letter itself being broken. A soft dark backdrop
-       between canvas and text dims that without touching the effect elsewhere.
-       Flat fill (not a radial gradient) — a radial's off-center falloff read
-       as an uneven shadow smudged across part of a letter instead of a clean dim. */
-    .hero-headline::before {
-      content: '';
-      position: absolute;
-      inset: -8% -4%;
-      z-index: -1;
-      background: rgba(4,4,12,.55);
-      border-radius: 24px;
-      pointer-events: none;
-    }
 
     .hero-first, .hero-last {
       font-size: clamp(5rem, 14vw, 11rem);
@@ -1862,12 +1847,46 @@ window.addEventListener('load', function () {
   const ctx = canvas.getContext('2d');
   let W, H, nodes = [];
 
+  // "Fontes" is stroke-only (transparent fill), so any line drawn behind it shows
+  // straight through the hollow letterforms — a line crossing a counter reads as
+  // the letter itself being broken/shadowed. Rather than dimming or masking after
+  // the fact (both tried, both left visible artifacts), keep nodes and connecting
+  // lines out of that rectangle entirely so nothing is ever drawn back there.
+  let noZone = null;
+  function computeNoZone() {
+    const headline = document.querySelector('#hero .hero-headline');
+    if (!headline) return;
+    const hr = headline.getBoundingClientRect();
+    const cr = canvas.getBoundingClientRect();
+    const pad = 24;
+    noZone = {
+      x0: hr.left - cr.left - pad, y0: hr.top - cr.top - pad,
+      x1: hr.right - cr.left + pad, y1: hr.bottom - cr.top + pad
+    };
+  }
+
   function resizeCanvas() {
     W = canvas.width = canvas.offsetWidth;
     H = canvas.height = canvas.offsetHeight;
+    computeNoZone();
   }
   resizeCanvas();
   window.addEventListener('resize', resizeCanvas);
+  // A plain 'resize' listener only fires on viewport size changes -- layout can
+  // also shift from web fonts finishing their swap after 'load', leaving the
+  // canvas's internal buffer permanently out of sync with its rendered CSS size
+  // (and every node/zone coordinate computed from it wrong as a result).
+  // ResizeObserver catches ANY layout change to the element itself.
+  new ResizeObserver(() => resizeCanvas()).observe(canvas);
+
+  function segmentHitsNoZone(ax, ay, bx, by) {
+    if (!noZone) return false;
+    // Cheap approximation: skip the segment if either endpoint or its midpoint
+    // falls inside the rect -- good enough at this line length/density.
+    const mx = (ax+bx)/2, my = (ay+by)/2;
+    const inZone = (x,y) => x > noZone.x0 && x < noZone.x1 && y > noZone.y0 && y < noZone.y1;
+    return inZone(ax,ay) || inZone(bx,by) || inZone(mx,my);
+  }
 
   // Heavy O(n^2) connection pass — far fewer nodes on phones, where CPUs are weaker
   // and the mouse-avoidance interaction (the whole reason for extra nodes) doesn't apply.
@@ -1907,6 +1926,18 @@ window.addEventListener('load', function () {
         n.x += (dMx/dM) * .6;
         n.y += (dMy/dM) * .6;
       }
+
+      // Nudge back out if a node has drifted into the headline's keep-out zone —
+      // pushes toward whichever edge (x or y) is closest, so it exits cleanly.
+      if (noZone && n.x > noZone.x0 && n.x < noZone.x1 && n.y > noZone.y0 && n.y < noZone.y1) {
+        const distLeft = n.x - noZone.x0, distRight = noZone.x1 - n.x;
+        const distTop = n.y - noZone.y0, distBottom = noZone.y1 - n.y;
+        const min = Math.min(distLeft, distRight, distTop, distBottom);
+        if (min === distLeft) n.x = noZone.x0 - 1;
+        else if (min === distRight) n.x = noZone.x1 + 1;
+        else if (min === distTop) n.y = noZone.y0 - 1;
+        else n.y = noZone.y1 + 1;
+      }
     });
 
     for (let i = 0; i < nodes.length; i++) {
@@ -1914,7 +1945,7 @@ window.addEventListener('load', function () {
         const a = nodes[i], b = nodes[j];
         const dx = a.x-b.x, dy = a.y-b.y;
         const d = Math.sqrt(dx*dx+dy*dy);
-        if (d < CONNECT_DIST) {
+        if (d < CONNECT_DIST && !segmentHitsNoZone(a.x, a.y, b.x, b.y)) {
           const alpha = (1 - d/CONNECT_DIST) * 0.35;
           ctx.beginPath();
           ctx.moveTo(a.x, a.y); ctx.lineTo(b.x, b.y);
