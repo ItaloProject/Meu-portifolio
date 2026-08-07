@@ -107,6 +107,13 @@
     body.cursor-hover #c-beam { animation: none; opacity: 0; }
     body.cursor-hover #c-arrow { opacity: 1; }
 
+    /* CSS-only safety net: guarantees the fake cursor never shows on touch
+       devices even if the JS touch-detection check races the page load. */
+    @media (pointer: coarse) {
+      body { cursor: auto !important; }
+      #c-beam, #c-arrow, #c-trail { display: none !important; }
+    }
+
     @keyframes caret-blink {
       0%, 100% { opacity: 1; }
       50%       { opacity: 0; }
@@ -1776,30 +1783,38 @@ window.addEventListener('load', function () {
   gsap.set('.gs-hidden', { opacity: 0 });
   gsap.set('.pipe-stage', { opacity: 0, y: 30 });
 
-  // ── CURSOR — terminal I-beam ──
-  const beam  = document.getElementById('c-beam');
-  const arrow = document.getElementById('c-arrow');
-  const trail = document.getElementById('c-trail');
-  let mx = 0, my = 0, tx = 0, ty = 0;
+  // Touch/coarse-pointer devices have no mouse — skip cursor rAF loops and
+  // heavy canvas work entirely rather than running it uselessly in the background.
+  const IS_TOUCH = window.matchMedia('(pointer: coarse)').matches;
 
-  document.addEventListener('mousemove', e => {
-    mx = e.clientX; my = e.clientY;
-    beam.style.left  = mx + 'px';
-    beam.style.top   = my + 'px';
-    arrow.style.left = mx + 'px';
-    arrow.style.top  = my + 'px';
-  });
+  // ── CURSOR — terminal I-beam (desktop only) ──
+  if (!IS_TOUCH) {
+    const beam  = document.getElementById('c-beam');
+    const arrow = document.getElementById('c-arrow');
+    const trail = document.getElementById('c-trail');
+    let mx = 0, my = 0, tx = 0, ty = 0;
 
-  (function loop() {
-    tx += (mx - tx) * 0.06; ty += (my - ty) * 0.06;
-    trail.style.left = tx + 'px'; trail.style.top = ty + 'px';
-    requestAnimationFrame(loop);
-  })();
+    document.addEventListener('mousemove', e => {
+      mx = e.clientX; my = e.clientY;
+      beam.style.left  = mx + 'px';
+      beam.style.top   = my + 'px';
+      arrow.style.left = mx + 'px';
+      arrow.style.top  = my + 'px';
+    });
 
-  document.querySelectorAll('a, button, .sg-item').forEach(el => {
-    el.addEventListener('mouseenter', () => document.body.classList.add('cursor-hover'));
-    el.addEventListener('mouseleave', () => document.body.classList.remove('cursor-hover'));
-  });
+    (function loop() {
+      tx += (mx - tx) * 0.06; ty += (my - ty) * 0.06;
+      trail.style.left = tx + 'px'; trail.style.top = ty + 'px';
+      requestAnimationFrame(loop);
+    })();
+
+    document.querySelectorAll('a, button, .sg-item').forEach(el => {
+      el.addEventListener('mouseenter', () => document.body.classList.add('cursor-hover'));
+      el.addEventListener('mouseleave', () => document.body.classList.remove('cursor-hover'));
+    });
+  } else {
+    document.body.style.cursor = 'auto';
+  }
 
   // ── CANVAS network ──
   const canvas = document.getElementById('hero-canvas');
@@ -1813,7 +1828,9 @@ window.addEventListener('load', function () {
   resizeCanvas();
   window.addEventListener('resize', resizeCanvas);
 
-  const NODE_COUNT = 60, CONNECT_DIST = 140;
+  // Heavy O(n^2) connection pass — far fewer nodes on phones, where CPUs are weaker
+  // and the mouse-avoidance interaction (the whole reason for extra nodes) doesn't apply.
+  const NODE_COUNT = IS_TOUCH ? 22 : 60, CONNECT_DIST = 140;
 
   for (let i = 0; i < NODE_COUNT; i++) {
     nodes.push({
@@ -1824,9 +1841,19 @@ window.addEventListener('load', function () {
   }
 
   let mousePX = -1000, mousePY = -1000;
-  document.addEventListener('mousemove', e => { mousePX = e.clientX; mousePY = e.clientY; });
+  if (!IS_TOUCH) {
+    document.addEventListener('mousemove', e => { mousePX = e.clientX; mousePY = e.clientY; });
+  }
+
+  // Only redraw while the hero is actually on screen — no point burning CPU/battery
+  // animating a canvas the visitor has already scrolled past.
+  let heroVisible = true;
+  new IntersectionObserver(entries => {
+    entries.forEach(entry => { heroVisible = entry.isIntersecting; });
+  }, { threshold: 0 }).observe(document.getElementById('hero'));
 
   function drawNet() {
+    if (!heroVisible) { requestAnimationFrame(drawNet); return; }
     ctx.clearRect(0, 0, W, H);
     nodes.forEach(n => {
       n.x += n.vx; n.y += n.vy;
@@ -1904,10 +1931,18 @@ window.addEventListener('load', function () {
     .fromTo('#hero-actions', { opacity: 0, y: 20 }, { opacity: 1, y: 0, duration: .6 }, 1.0)
     .fromTo('#hero-scroll', { opacity: 0 }, { opacity: 1, duration: .6 }, 1.3);
 
-  // ── NAV SCROLL ──
+  // ── NAV SCROLL (rAF-throttled — un-throttled scroll handlers toggling a
+  //    backdrop-filter class on every pixel is a classic mobile scroll-jank cause) ──
+  const navbarEl = document.getElementById('navbar');
+  let navScrollTicking = false;
   window.addEventListener('scroll', () => {
-    document.getElementById('navbar').classList.toggle('scrolled', window.scrollY > 60);
-  });
+    if (navScrollTicking) return;
+    navScrollTicking = true;
+    requestAnimationFrame(() => {
+      navbarEl.classList.toggle('scrolled', window.scrollY > 60);
+      navScrollTicking = false;
+    });
+  }, { passive: true });
 
   // ── MOBILE MENU ──
   const burger = document.getElementById('nav-burger');
@@ -2041,14 +2076,20 @@ window.addEventListener('load', function () {
     }, 1400);
   };
 
-  // ── HERO PARALLAX ──
-  window.addEventListener('scroll', () => {
-    const sy = window.scrollY;
+  // ── HERO PARALLAX (desktop only, rAF-throttled, element cached) ──
+  if (!IS_TOUCH) {
     const heroContent = document.querySelector('#hero .hero-headline');
-    if (heroContent && sy < window.innerHeight) {
-      gsap.set(heroContent, { y: sy * .15 });
-    }
-  });
+    let parallaxTicking = false;
+    window.addEventListener('scroll', () => {
+      if (parallaxTicking || !heroContent) return;
+      parallaxTicking = true;
+      requestAnimationFrame(() => {
+        const sy = window.scrollY;
+        if (sy < window.innerHeight) gsap.set(heroContent, { y: sy * .15 });
+        parallaxTicking = false;
+      });
+    }, { passive: true });
+  }
 
   // ══════════════════════════════════════════
   // ── ROCKET LAUNCH ──
@@ -2105,6 +2146,11 @@ window.addEventListener('load', function () {
 
   function launchRocket() {
     if (rFlying) return;
+    // position:fixed means the ship flies relative to whatever is CURRENTLY on
+    // screen, not to the hero section's place in the document. Launching while
+    // the visitor has scrolled elsewhere makes it fly straight through that
+    // content instead. Wait for the hero to actually be in view, recheck soon after.
+    if (!heroVisible) { setTimeout(launchRocket, 4000); return; }
     rFlying = true;
     rTrailFade = 1;
 
@@ -2169,8 +2215,10 @@ window.addEventListener('load', function () {
     setTimeout(launchRocket, 30000 + Math.random() * 25000);
   }
 
-  // First launch after 2.5s
-  setTimeout(launchRocket, 2500);
+  // Skip entirely on phones — small screens make the flight path (and its
+  // trail) impossible to avoid overlapping content, and it's a pure "wow" extra
+  // that isn't worth the battery/CPU cost on weaker mobile hardware.
+  if (!IS_TOUCH) setTimeout(launchRocket, 2500);
 
   // ══════════════════════════════════════════
   // ── AI SHOWCASE VIDEO ──
